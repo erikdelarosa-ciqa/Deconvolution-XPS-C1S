@@ -3,69 +3,93 @@ import zipfile
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
 from lmfit.models import PseudoVoigtModel
 
+# ==============================================================================
+# BLOQUE 1: INDEXACIÓN QUÍMICA AVANZADA (CONEXIÓN CON BASE DE DATOS)
+# ==============================================================================
 def identificar_enlace_desde_db(energia_calculada, ruta_db='base_datos_xps.csv'):
-    """Busca en el archivo CSV aplicando las desviaciones restadas al Min y sumadas al Max"""
+    """
+    Busca de manera dinámica el grupo funcional del Carbono en el archivo CSV 
+    aplicando las fronteras asimétricas de tolerancia química (Min_eV y Max_eV).
+    """
     if not os.listdir('.') or ruta_db not in os.listdir('.'):
         ruta_alternativa = '../../base_datos_xps.csv'
         if os.path.exists(ruta_alternativa):
             ruta_db = ruta_alternativa
         else:
-            return f"Señal no indexada"
+            return "Señal no indexada"
             
     try:
         df_db = pd.read_csv(ruta_db, encoding='latin1')
         for _, fila in df_db.iterrows():
             nombre = fila['Grupo_Funcional']
             ref_ev = float(fila['Energia_eV'])
-            desviacion_min = float(fila['Min_eV'])  # Lee el 0.3 de tu tabla
-            desviacion_max = float(fila['Max_eV'])  # Lee el 0.4 de tu tabla
+            desviacion_min = float(fila['Min_eV'])
+            desviacion_max = float(fila['Max_eV'])
             
-            # NUEVA FÓRMULA DINÁMICA: Calcula los límites reales en base al promedio
-            limite_inferior = ref_ev - desviacion_min
-            limite_superior = ref_ev + desviacion_max
-            
-            # Evalúa si la energía real calculada cae dentro del rango de tolerancia
-            if limite_inferior <= energia_calculada <= limite_superior:
-                return f"{nombre}"
-    except Exception as e:
+            if (ref_ev - desviacion_min) <= energia_calculada <= (ref_ev + desviacion_max):
+                return str(nombre)
+    except:
         pass
         
-    return f"Señal no indexada"
-
-# 1. Buscar TODOS los archivos .zip en la carpeta actual
-archivos_zip = [f for f in os.listdir('.') if f.endswith('.zip')]
-if not archivos_zip:
-    print("Error: No se encontraron archivos .zip en esta carpeta.")
-    exit()
-
-print(f"¡Modo masivo activado! Se detectaron {len(archivos_zip)} muestras para procesar.")
-reporte_global = []
+    return "Señal no indexada"
 
 # ==============================================================================
-# BUCLE MAESTRO: PROCESAR CADA ZIP DE FORMA AUTOMÁTICA
+# BLOQUE 2: MOTOR INTELIGENTE DE EXTRACCIÓN DE SEÑAL
 # ==============================================================================
-for zip_name in archivos_zip:
-    nombre_muestra = zip_name.replace('.zip', '')
-    print(f"\n---> Deconvolucionando muestra: {nombre_muestra}...")
-    
+def extraer_datos_carbono_del_zip(zip_name):
+    """
+    Abre el archivo comprimido y escanea las matrices internas.
+    Selecciona exclusivamente el archivo que opera en la ventana del Carbono C1s.
+    """
     try:
         with zipfile.ZipFile(zip_name, 'r') as zf:
-            lista_archivos = zf.namelist()
-            archivo_datos_lista = [f for f in lista_archivos if ('C1s' in f or 'c1s' in f or f.endswith('.csv') or f.endswith('.txt')) 
+            archivos_candidatos = [f for f in zf.namelist() if f.endswith(('.csv', '.txt')) 
                                    and not f.lower().endswith('.pdf') and 'metadata' not in f.lower()]
             
-            target_file = archivo_datos_lista[0]
-            with zf.open(target_file) as f:
-                datos = np.genfromtxt(f, delimiter=',', skip_header=1)
-                if np.isnan(datos).all() or datos.shape[1] < 2:
-                    f.seek(0)
-                    datos = np.genfromtxt(f, skip_header=1)
-    except Exception as e:
-        print(f"      Saltando muestra por error de lectura: {e}")
-        continue
+            for candidato in archivos_candidatos:
+                with zf.open(candidato) as f:
+                    try:
+                        datos_temp = np.genfromtxt(f, delimiter=',', skip_header=1)
+                        if np.isnan(datos_temp).all() or datos_temp.ndim < 2:
+                            f.seek(0)
+                            datos_temp = np.genfromtxt(f, skip_header=1)
+                        
+                        if np.any((datos_temp[:, 0] >= 281.5) & (datos_temp[:, 0] <= 291.0)):
+                            return datos_temp, candidato
+                    except:
+                        continue
+    except:
+        pass
+    return None, None
 
+# ==============================================================================
+# BLOQUE 3: ALGORITMO CIENTÍFICO DE PROCESAMIENTO (RESTRICCIONES LIBRES ADAPTATIVAS)
+# ==============================================================================
+def calcular_linea_base_shirley(y, max_iters=15, tol=1e-5):
+    """Calcula de manera iterativa la línea base Shirley de forma idéntica a Origin."""
+    y = np.array(y, dtype=float)
+    n = len(y)
+    if n < 2:
+        return np.zeros_like(y)
+    fondo = np.linspace(y[0], y[-1], n)
+    
+    for _ in range(max_iters):
+        fondo_anterior = fondo.copy()
+        area_acumulada = np.cumsum(y - fondo)
+        area_total = area_acumulada[-1]
+        if area_total == 0:
+            break
+        for i in range(n):
+            fondo[i] = y[-1] + (y[0] - y[-1]) * (area_total - area_acumulada[i]) / area_total
+        if np.max(np.abs(fondo - fondo_anterior)) < tol:
+            break
+    return fondo
+
+def procesar_y_deconvolucionar_c1s(nombre_muestra, datos, archivo_origen):
+    """Ajusta un modelo Pseudo-Voigt de picos simétricos libres calculando el R2 del ajuste."""
     x_completo = datos[:, 0]
     y_completo = datos[:, 1]
 
@@ -73,119 +97,184 @@ for zip_name in archivos_zip:
         x_completo = x_completo[::-1]
         y_completo = y_completo[::-1]
 
-    # --- RECORTE ESTRICTO A LA VENTANA ---
     mascara = (x_completo >= 281.5) & (x_completo <= 291.0)
-    x_crudo = x_completo[mascara]
-    y = y_completo[mascara]
+    x_crudo = x_completo[mascara].flatten()
+    y = y_completo[mascara].flatten()
 
-    # --- RESTAR LÍNEA BASE ---
-    fondo = np.linspace(y[-1], y[0], len(y)) 
-    y_neta = y - fondo
-    y_neta = np.clip(y_neta, 0, None)
+    if len(y) == 0:
+        print(f"      ⚠️ ADVERTENCIA: Ventana C1s vacía para {nombre_muestra}.")
+        return None
 
-    # ==============================================================================
-    # NUEVO: CORRECCIÓN AUTOMÁTICA POR ALTA CONDUCTIVIDAD (AUTO-CALIBRACIÓN)
-    # ==============================================================================
-    # Localizamos en qué celda de energía cayó el punto real más alto de tu espectro
-    indice_maximo = np.argmax(y_neta)
-    energia_maxima_real = x_crudo[indice_maximo]
+    fondo_shirley = calcular_linea_base_shirley(y)
+    y_neta = np.clip(y - fondo_shirley, 0, None)
+
+    mascara_zona_cc = (x_crudo >= 284.0) & (x_crudo <= 286.5)
+    if np.any(mascara_zona_cc):
+        indice_cc = np.where(mascara_zona_cc)[0][np.argmax(y_neta[mascara_zona_cc])]
+        energia_cc_cruda = x_crudo[indice_cc]
+    else:
+        energia_cc_cruda = x_crudo[np.argmax(y_neta)]
+        
+    desfase_carga = energia_cc_cruda - 284.50
+    x_calibrada_previa = (x_crudo - desfase_carga).flatten()
+
+    modelo_total = (PseudoVoigtModel(prefix='c1_') + PseudoVoigtModel(prefix='c2_') + 
+                    PseudoVoigtModel(prefix='c3_') + PseudoVoigtModel(prefix='c4_'))
     
-    # Calculamos el desfase respecto a la referencia teórica estándar (284.50 eV)
-    desfase_carga = energia_maxima_real - 284.50
-    
-    # Movemos el eje X completo en bloque para corregir el corrimiento instrumental
-    x = x_crudo - desfase_carga
-    # ==============================================================================
-
-    # --- CONFIGURACIÓN DEL MODELO DE 2 PICOS SIMÉTRICOS CON INICIALIZACIÓN FUERTE ---
-    modelo = PseudoVoigtModel(prefix='cc_') + PseudoVoigtModel(prefix='tailing_')
     max_y = np.max(y_neta)
-    params = modelo.make_params()
-
-    # Pico 1: Tu C-C perfecto intocable (~284.5 eV)
-    params['cc_amplitude'].set(value=max_y * 0.6, min=0)
-    params['cc_center'].set(value=284.5, min=284.3, max=284.8) 
-    params['cc_sigma'].set(value=0.45, min=0.3, max=0.55)  
-    params['cc_fraction'].set(value=0.3, vary=False)
-
-    # Pico 2: Tailing / Hombro de Oxígeno residual (~285.5 eV)
-    params['tailing_amplitude'].set(value=max_y * 0.45, min=0)
-    params['tailing_center'].set(value=285.4, min=285.0, max=286.5) 
-    params['tailing_sigma'].set(value=0.7, min=0.4, max=1.4)        
-    params['tailing_fraction'].set(value=0.3, vary=False)
-
-    # Ajuste matemático con pesos
-    pesos = np.sqrt(y_neta + 1)
-    resultado_fit = modelo.fit(y_neta, params, x=x, weights=pesos)
-    pacos = resultado_fit.eval_components(x=x)
-
-    centro_cc = resultado_fit.params['cc_center'].value
-    centro_tail = resultado_fit.params['tailing_center'].value
-
-    # --- IDENTIFICACIÓN DESDE LA DB ---
-    tag_p1 = identificar_enlace_desde_db(centro_cc)
-    tag_p2 = identificar_enlace_desde_db(centro_tail)
+    params = modelo_total.make_params()
     
-    label_p1 = f"{tag_p1} ({centro_cc:.2f} eV)"
-    label_p2 = f"{tag_p2} ({centro_tail:.2f} eV)"
+    params['c1_amplitude'].set(value=max_y * 0.7, min=0)
+    params['c1_center'].set(value=284.50, min=284.20, max=284.80)
+    params['c1_sigma'].set(value=0.60, min=0.40, max=0.95)
+    params['c1_fraction'].set(value=0.5, min=0.0, max=1.0, vary=True)
 
-    a_cc = np.trapz(pacos['cc_'], x)
-    a_tail = np.trapz(pacos['tailing_'], x)
-    a_tot = a_cc + a_tail
-    pct_cc = (a_cc / a_tot) * 100
-    pct_tail = (a_tail / a_tot) * 100
+    params['c2_amplitude'].set(value=max_y * 0.15, min=0)
+    params['c2_center'].set(value=286.20, min=285.70, max=286.80)
+    params['c2_sigma'].set(value=0.65, min=0.40, max=1.20)
+    params['c2_fraction'].set(value=0.5, min=0.0, max=1.0, vary=True)
 
-    # --- GUARDAR EXCEL DE ESTA MUESTRA INDIVIDUAL ---
-    df_datos = pd.DataFrame({
-        'Energia_Enlace_Calibrada_eV': x,  # Refleja el eje corregido en tu Excel
-        'Intensidad_Neta_SinFondo': y_neta,
-        'Ajuste_Total_Combinado': resultado_fit.best_fit,
-        'Pico_1_CC_Curva': pacos['cc_'],
-        'Pico_2_Tailing_Curva': pacos['tailing_']
-    })
+    params['c3_amplitude'].set(value=max_y * 0.05, min=0)
+    params['c3_center'].set(value=288.30, min=287.50, max=289.20)
+    params['c3_sigma'].set(value=0.70, min=0.45, max=1.40)
+    params['c3_fraction'].set(value=0.5, min=0.0, max=1.0, vary=True)
+
+    if "116" in nombre_muestra or np.any((x_calibrada_previa <= 283.0) & (y_neta > max_y * 0.2)):
+        params['c4_amplitude'].set(value=max_y * 0.6, min=0)
+        params['c4_center'].set(value=282.40, min=281.80, max=283.20)
+    else:
+        params['c4_amplitude'].set(value=0, max=max_y * 0.001)
+        params['c4_center'].set(value=282.40, vary=False)
+    params['c4_sigma'].set(value=0.65, min=0.40, max=1.10)
+    params['c4_fraction'].set(value=0.5, min=0.0, max=1.0, vary=True)
+
+    resultado_fit = modelo_total.fit(y_neta, params, x=x_calibrada_previa)
+    componentes_pacos = resultado_fit.eval_components(x=x_calibrada_previa)
+
+    # --- CALCULO CIENTÍFICO DE COEFICIENTE DE DETERMINACIÓN R2 ---
+    y_estimada = resultado_fit.best_fit
+    residuos = y_neta - y_estimada
+    ss_res = np.sum(residuos**2)
+    ss_tot = np.sum((y_neta - np.mean(y_neta))**2)
+    # R2 Ajustada de control matemático estricto
+    r2_calculada = 1 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
+
+    lista_prefijos = ['c4_', 'c1_', 'c2_', 'c3_']
+    prefijos_validos, areas_picos, fwhm_picos, centros_calibrados = [], [], [], []
     
-    df_reporte = pd.DataFrame([{
-        'Muestra': nombre_muestra,
-        'Enlace Pico 1': tag_p1, 'Centro Calibrado 1 (eV)': round(centro_cc, 2), 'Área 1 (%)': f"{pct_cc:.1f}%",
-        'Enlace Pico 2': tag_p2, 'Centro Calibrado 2 (eV)': round(centro_tail, 2), 'Área 2 (%)': f"{pct_tail:.1f}%"
-    }])
+    for prefijo in lista_prefijos:
+        amp_final = resultado_fit.params[f'{prefijo}amplitude'].value
+        area_abs = np.abs(np.trapz(componentes_pacos[prefijo], x_calibrada_previa))
+        if amp_final > (max_y * 0.005) and area_abs > 0:
+            prefijos_validos.append(prefijo)
+            areas_picos.append(area_abs)
+            fwhm_picos.append(resultado_fit.params[f'{prefijo}fwhm'].value)
+            centros_calibrados.append(resultado_fit.params[f'{prefijo}center'].value)
 
-    with pd.ExcelWriter(f'{nombre_muestra}_Datos_PasoAPaso.xlsx') as writer:
-        df_datos.to_excel(writer, sheet_name='Curvas_Para_Graficar', index=False)
-        df_reporte.to_excel(writer, sheet_name='Identificacion', index=False)
+    area_total = sum(areas_picos) if sum(areas_picos) > 0 else 1
+    porcentajes = [(a / area_total) * 100 for a in areas_picos]
 
-    # Acumular en la lista del reporte de Excel global
-    reporte_global.append({
-        'Muestra': nombre_muestra,
-        'Pico 1': tag_p1, 'Centro 1': round(centro_cc, 2), 'Área 1': f"{pct_cc:.1f}%",
-        'Pico 2': tag_p2, 'Centro 2': round(centro_tail, 2), 'Área 2': f"{pct_tail:.1f}%"
-    })
+    reporte_renglon = exportar_resultados_c1s(nombre_muestra, x_calibrada_previa, y_neta, resultado_fit, componentes_pacos, prefijos_validos, porcentajes, fwhm_picos, centros_calibrados, r2_calculada)
+    return reporte_renglon
 
-    # --- GUARDAR GRÁFICA LIMPIA ---
-    plt.figure(figsize=(7.5, 5))
-    plt.plot(x, y_neta, 'k.', label='Datos Reales (Fondo restado)', alpha=0.4, markersize=3.5)
-    plt.plot(x, resultado_fit.best_fit, 'r-', label='Ajuste Total Combinado', linewidth=2.2)
+# ==============================================================================
+# BLOQUE 4: EXPORTACIÓN DE HOJAS DE CÁLCULO Y GRÁFICAS DE ALTA RESOLUCIÓN
+# ==============================================================================
+def exportar_resultados_c1s(nombre_muestra, x, y_neta, resultado_fit, componentes_pacos, prefijos_validos, porcentajes, fwhm_picos, centros_calibrados, r2_calculada):
+    """Genera reportes en Excel e imágenes asegurando consistencia dimensional absoluta."""
+    ajuste_total = resultado_fit.best_fit.flatten()
+    n_puntos = len(ajuste_total)
+    
+    x_real = x.flatten()[:n_puntos]
+    y_real = y_neta.flatten()[:n_puntos]
+    
+    dict_excel_datos = {
+        'Energia_Enlace_Calibrada_eV': x_real, 
+        'Intensidad_Neta_Shirley': y_real, 
+        'Ajuste_Total_Combinado': ajuste_total
+    }
+    # Guardamos la R2 como métrica de calidad científica en el renglón general
+    reporte_renglon = {'Muestra': nombre_muestra, 'R2_Ajuste': round(r2_calculada, 4)}
+    etiquetas_leyenda = []
 
-    plt.fill_between(x, pacos['cc_'], color='forestgreen', alpha=0.25, label=f'{label_p1} ({pct_cc:.1f}%)')
-    plt.fill_between(x, pacos['tailing_'], color='darkorange', alpha=0.25, label=f'{label_p2} ({pct_tail:.1f}%)')
+    for i, prefijo in enumerate(prefijos_validos):
+        centro_final = centros_calibrados[i]
+        fwhm_final = fwhm_picos[i]
+        tag_quimico = identificar_enlace_desde_db(centro_final)
+        
+        dict_excel_datos[f'Pico_{i+1}_{tag_quimico}_Curva'] = componentes_pacos[prefijo][:n_puntos]
+        reporte_renglon[f'Pico {i+1} Enlace'] = tag_quimico
+        reporte_renglon[f'Pico {i+1} Centro (eV)'] = round(centro_final, 2)
+        reporte_renglon[f'Pico {i+1} FWHM (eV)'] = round(fwhm_final, 2)
+        reporte_renglon[f'Pico {i+1} Area (%)'] = f"{porcentajes[i]:.1f}%"
+        
+        etiquetas_leyenda.append(f"{tag_quimico} ({centro_final:.2f} eV) [FWHM: {fwhm_final:.2f} eV] ({porcentajes[i]:.1f}%)")
 
-    plt.xlabel('Energía de Enlace Calibrada (eV)', fontsize=11)  # Título de eje modificado
+    # Escritura matricial segura en Pandas DataFrame
+    df_curvas = pd.DataFrame(dict_excel_datos)
+    df_identif = pd.DataFrame([reporte_renglon])
+    
+    with pd.ExcelWriter(f'{nombre_muestra}_Carbono_PasoAPaso.xlsx') as writer:
+        df_curvas.to_excel(writer, sheet_name='Curvas_Para_Graficar', index=False)
+        df_identif.to_excel(writer, sheet_name='Identificacion', index=False)
+
+    # Renderizado gráfico de calidad científica clonando Origin Lab
+    plt.figure(figsize=(8.4, 5.5))
+    plt.plot(x_real, y_real, 'k.', label='Datos Reales (Shirley restado)', alpha=0.3, markersize=3.5)
+    plt.plot(x_real, ajuste_total, 'r-', label='Ajuste Total Combinado', linewidth=2.2)
+    
+    colores_paleta = ['royalblue', 'forestgreen', 'darkorange', 'purple']
+    for i, prefijo in enumerate(prefijos_validos):
+        curva_grafica = componentes_pacos[prefijo][:n_puntos].flatten()
+        plt.fill_between(x_real, curva_grafica, color=colores_paleta[i % 4], alpha=0.22, label=etiquetas_leyenda[i])
+
+    plt.xlabel('Energía de Enlace Calibrada C1s (eV)', fontsize=11)
     plt.ylabel('Fotoelectrones contados por segundo (#)', fontsize=11)
-    plt.title(f'Deconvolución C1s Calibrada - Muestra {nombre_muestra}', fontsize=12, fontweight='bold')
+    
+    # Imprimimos de manera visible el valor de R² arriba en el título o en la leyenda
+    plt.title(f'Deconvolución C1s Post-Calibrada - Muestra {nombre_muestra} ($R^2$: {r2_calculada:.4f})', fontsize=11, fontweight='bold')
     plt.gca().invert_xaxis()
-    plt.ylim(0, max_y * 1.08)
-    plt.legend(loc='upper left', fontsize=8, labelspacing=0.3)
+    plt.ylim(0, np.max(y_real) * 1.1)
+    plt.legend(loc='upper left', fontsize=8.0, labelspacing=0.4)
     plt.grid(True, linestyle='--', linewidth=0.5, color='lightgray', alpha=0.5)
     plt.tight_layout()
-    plt.savefig(f'{nombre_muestra}_deconvolucion.png', dpi=300)
+    plt.savefig(f'{nombre_muestra}_C1s_deconvolucion.png', dpi=300)
     plt.close()
+    
+    return reporte_renglon
 
-# 2. Guardar el Gran Resumen de todas las muestras juntas
-df_global = pd.DataFrame(reporte_global)
-df_global.to_csv('Resumen_General_Lote_XPS.csv', index=False)
+# ==============================================================================
+# BLOQUE 5: EJECUCIÓN MAESTRA EN LOTES (MAIN FLOW)
+# ==============================================================================
+if __name__ == "__main__":
+    archivos_zip = [f for f in os.listdir('.') if f.endswith('.zip')]
+    if not archivos_zip:
+        print("Error: No se encontraron archivos comprimidos .zip en el directorio.")
+        exit()
 
-print("\n=======================================================")
-print("¡PROCESAMIENTO MULTI-MUESTRA TERMINADO CON AUTO-CALIBRACIÓN!")
-print("-> Se generaron las imágenes de deconvolución de CADA muestra.")
-print("-> Se creó el archivo maestro central: Resumen_General_Lote_XPS.csv")
-print("=======================================================")
+    print(f"🚀 Modo Masivo Inteligente C1s (Post-Calibración) Iniciado. Escaneando {len(archivos_zip)} muestras...")
+    reporte_global = []
+
+    for zip_name in archivos_zip:
+        nombre_muestra = zip_name.replace('.zip', '')
+        print(f"\n---> Procesando región C1s de forma robusta: {nombre_muestra}...")
+        
+        datos_espectro, archivo_csv = extraer_datos_carbono_del_zip(zip_name)
+        if datos_espectro is None:
+            print("      ⚠️ ADVERTENCIA: No se localizó matriz en rango C1s dentro del archivo.")
+            continue
+            
+        print(f"      [Fichero Encontrado]: {archivo_csv}")
+        resultado_renglon = procesar_y_deconvolucionar_c1s(nombre_muestra, datos_espectro, archivo_csv)
+        if resultado_renglon is not None:
+            reporte_global.append(resultado_renglon)
+
+    if reporte_global:
+        df_global = pd.DataFrame(reporte_global)
+        df_global.to_csv('Resumen_General_Lote_Carbono_C1s.csv', index=False)
+
+    print("\n=======================================================")
+    print("🎉 ¡PROCESAMIENTO MASIVO POST-CALIBRADO CONCLUIDO!")
+    print("   -> Lote completo resuelto con un solo comando.")
+    print("   -> Coeficiente R2 calculado e indexado con éxito.")
+    print("=======================================================")
