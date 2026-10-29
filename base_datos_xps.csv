@@ -1,0 +1,65 @@
+Grupo_Funcional,Energia_eV,Min_eV,Max_eV
+Si,99.4,0.3,0.3
+SiC,100.3,0.3,0.3
+SiN,101.7,0.5,0.5
+Silicona,102.4,0.9,0.9
+SiO2,103.5,0.3,0.3
+C-S-C Sulfuro,163.7,0.6,0.6
+C-S-H Tiol,163.8,0.4,0.4
+C4S-H Tiofeno,164,0.3,0.3
+R2-SO Sulfonil,165.5,0.5,0.5
+C-SO2-C Sulfona,167.6,0.3,0.3
+C-SO3-H Sulfonato,168,0.2,0.2
+C-Si,284.13,0.06,0.11
+Carbono Aromático,284.46,0.14,0.22
+C=C,284.53,0.3,0.4
+C-C / C-H Alifático,284.8,0.01,0.01
+C-S,285.17,0.16,0.15
+C-Br,285.54,0.01,0.01
+C-N2 Nitroso,285.56,0.01,0.01
+C-N Amina,285.74,0.38,0.47
+C-Cl Aromático ,285.82,0.03,0.05
+C-N+ Amina Cuaternaria,285.91,0.12,0.11
+C*-C=N Triple enlace C-N,286.21,0.05,0.05
+C-O-C Epóxido/Éter,286.25,0.32,0.3
+C-OH Hidroxilo,286.35,0.08,0.18
+C-C*=N Triple enlace C-N,286.54,0.1,0
+C-Cl,286.71,0.02,0.01
+C-O Epóxido Puro,286.82,0.01,0.01
+N-C-O,287.58,0.02,0.02
+C=O Carbonilo,287.7,0.09,0.07
+C-F,287.71,0.01,0.01
+O-C-O Acetato,287.73,0.1,0.13
+N-C=O,287.91,0.14,0.48
+CCl2,288.36,0.01,0.01
+N-(C=O)-N,288.64,0.01,0.01
+C-O-(C*=O) Éster,288.79,0.35,0.24
+O-(C-O)-O,289.12,0.01,0.01
+N-(C=O)-O,289.4,0.01,0.01
+HO-(C=O) Carboxilo,289.06,0.08,0.07
+-O-(C=O)-O-,290.2,0.05,0.04
+CF2,290.7,0.01,0.01
+Emeraldina/Pernigranilina,398.4,0.1,0.1
+C=N-C Imina,399,0.4,0.4
+"C-NR2 (R=C, H) Amina",399.4,0.8,0.8
+(CN)- Cianida,399.4,0.01,0.01
+Leucoemeraldina,399.5,0.01,0.01
+N-(C=O)- Amida,399.7,0.3,0.3
+N-(C=O)-N,399.9,0.01,0.01
+N-(C=O)-O-,400.3,0.01,0.01
+(C=O)-N-(C=O) Imida,400.6,0.1,0.1
+(NO2) Nitrito,403.9,0.7,0.7
+NO2 Nitro,405.7,0.2,0.2
+(NH4)+ Amonio,401.7,0.6,0.6
+(NO3) Nitrato,407.2,0.6,0.6
+C=O (Aromático),531.35,0.01,0.01
+O-(C=O*)-C (Aromático),531.65,0.02,0.02
+O=C-N,531.57,0.2,0.4
+Si-O-Si,532,0.01,0.01
+O-(C=O*)-C (Alifático),532.2,0.2,0.2
+C=O (Alifático),532.3,0.05,0.05
+C-O-C (Alifático),532.63,0.1,0.1
+Ag,368.3,0.1,0.1
+AgCl,368.1,0,0
+Ag2O,368.6,0,0
+AgNO3,368.8,0.1,0.1
